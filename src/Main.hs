@@ -10,7 +10,7 @@ import Control.Monad.Trans.Maybe (MaybeT(..))
 import Data.HTTPSEverywhere.Rules (rewriteURL)
 import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, windowNew, on)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
-import Graphics.UI.Gtk.WebKit.WebSettings (webSettingsEnableScripts)
+import Graphics.UI.Gtk.WebKit.WebSettings (webSettingsEnableScripts, webSettingsEnablePrivateBrowsing)
 import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewNew, webViewLoadUri, resourceRequestStarting, webViewGetWebSettings, webViewSetWebSettings)
 import Network.URI (parseURI)
 import System.Environment (getArgs)
@@ -21,6 +21,12 @@ noScript :: WebView -> IO ()
 noScript view = do
   settings <- webViewGetWebSettings view
   set settings [webSettingsEnableScripts := False]
+  webViewSetWebSettings view settings
+
+privateBrowsing :: WebView -> IO ()
+privateBrowsing view = do
+  settings <- webViewGetWebSettings view
+  set settings [webSettingsEnablePrivateBrowsing := True]
   webViewSetWebSettings view settings
 
 httpsEverywhere :: WebView -> IO (ConnectId WebView)
@@ -35,5 +41,6 @@ main = bracket_ initGUI mainGUI . void $ do
   window `containerAdd` view
   _ <- httpsEverywhere view
   _ <- noScript view
+  _ <- privateBrowsing view
   getArgs >>= webViewLoadUri view . head
   widgetShowAll window >> onDestroy window mainQuit
