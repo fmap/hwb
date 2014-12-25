@@ -1,46 +1,48 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Main (main) where
 
 import Control.Error.Util (hoistMaybe)
-import Control.Exception (bracket_)
+import Control.Exception (bracket, bracket_)
 import Control.Monad (liftM2, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Data.HTTPSEverywhere.Rules (rewriteURL)
 import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, windowNew, on)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
-import Graphics.UI.Gtk.WebKit.WebSettings (webSettingsEnableScripts, webSettingsEnablePrivateBrowsing)
+import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings, webSettingsEnableScripts, webSettingsEnablePrivateBrowsing)
 import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewNew, webViewLoadUri, resourceRequestStarting, webViewGetWebSettings, webViewSetWebSettings)
 import Network.URI (parseURI)
 import System.Environment (getArgs)
-import System.Glib.Signals (ConnectId)
-import System.Glib.Attributes (AttrOp((:=)), set)
+import System.Glib.Attributes (ReadWriteAttr, AttrOp((:=)), set)
 
-noScript :: WebView -> IO ()
-noScript view = do
-  settings <- webViewGetWebSettings view
-  set settings [webSettingsEnableScripts := False]
-  webViewSetWebSettings view settings
+type Rule = WebView -> IO ()
 
-privateBrowsing :: WebView -> IO ()
-privateBrowsing view = do
-  settings <- webViewGetWebSettings view
-  set settings [webSettingsEnablePrivateBrowsing := True]
-  webViewSetWebSettings view settings
+applySettingG :: a -> WebView -> ReadWriteAttr WebSettings a a -> IO ()
+applySettingG assignment view = bracket (webViewGetWebSettings view) (webViewSetWebSettings view) . flip set . return . (:= assignment)
 
-httpsEverywhere :: WebView -> IO (ConnectId WebView)
-httpsEverywhere = flip (flip on resourceRequestStarting) $ \_ _ requestM _ -> void . runMaybeT $ do
+setView, unsetView :: ReadWriteAttr WebSettings Bool Bool -> Rule
+setView = flip $ applySettingG True; unsetView = flip $ applySettingG False
+
+noScript, privateBrowsing :: Rule
+noScript = unsetView webSettingsEnableScripts
+privateBrowsing = setView webSettingsEnablePrivateBrowsing
+
+httpsEverywhere :: Rule
+httpsEverywhere = fmap void . flip (flip on resourceRequestStarting) $ \_ _ requestM _ -> void . runMaybeT $ do
   request  <- hoistMaybe requestM
   httpsURI <- MaybeT (networkRequestGetUri request) >>= hoistMaybe . parseURI >>= liftIO . rewriteURL
   liftIO . networkRequestSetUri request $ show httpsURI
 
+applyRules :: WebView -> [Rule] -> IO ()
+applyRules view = sequence_ . map ($ view)
+
 main :: IO ()
 main = bracket_ initGUI mainGUI . void $ do
   (window, view) <- liftM2 (,) windowNew webViewNew
-  window `containerAdd` view
-  _ <- httpsEverywhere view
-  _ <- noScript view
-  _ <- privateBrowsing view
+  applyRules view $ 
+    [ containerAdd window
+    , httpsEverywhere
+    , noScript
+    , privateBrowsing
+    ]
   getArgs >>= webViewLoadUri view . head
   widgetShowAll window >> onDestroy window mainQuit
