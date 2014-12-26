@@ -1,8 +1,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards     #-}
 
 module Main (main) where
 
+import Prelude hiding (Either(..))
 import Control.Error.Util (hoistMaybe)
 import Control.Exception (bracket, bracket_)
 import Control.Monad (liftM2, liftM3, void, unless)
@@ -12,7 +13,7 @@ import Data.HTTPSEverywhere.Rules (rewriteURL)
 import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventModifier, eventKeyVal)
 import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue, adjustmentGetStepIncrement)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
-import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindowClass, ScrolledWindow, scrolledWindowGetVAdjustment)
+import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindow, scrolledWindowGetVAdjustment,scrolledWindowGetHAdjustment)
 import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings, webSettingsEnableScripts, webSettingsEnablePrivateBrowsing)
 import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewNew, webViewLoadUri, resourceRequestStarting, webViewGetWebSettings, webViewSetWebSettings, titleChanged)
 import Graphics.UI.Gtk.Windows.Window (Window, windowTitle)
@@ -41,19 +42,29 @@ labelWindow :: UI -> IO ()
 labelWindow UI{..} = void . on uiWebView titleChanged $ \_ (title :: String) -> do
   set uiWindow [ windowTitle := title ]
 
-scrollW :: ScrolledWindowClass self => self -> (Double -> Double -> Double) -> IO ()
-scrollW window binOp = do
-  adjustment <- scrolledWindowGetVAdjustment window
-  position <- adjustmentGetValue adjustment
-  increment <- adjustmentGetStepIncrement adjustment
-  adjustmentSetValue adjustment $ position `binOp` increment
+(&) :: a -> (a -> b) -> b
+(&) = flip ($)
+infixr 0 &
+
+(<&>) :: Functor f => f a -> (a -> b) -> f b
+(<&>) = flip fmap
+infixr 0 <&>
+
+data Orientation = Left | Up | Down | Right deriving Eq
+
+scroll :: ScrolledWindow -> Orientation -> IO ()
+scroll window orientation = do
+  adjustment <- window & if orientation `elem` [Left, Right] then scrolledWindowGetHAdjustment else scrolledWindowGetVAdjustment
+  position   <- adjustmentGetValue adjustment
+  increment  <- adjustmentGetStepIncrement adjustment <&> if orientation `elem` [Left, Up] then negate else id
+  adjustmentSetValue adjustment $ position + increment
 
 jk :: UI -> IO ()
 jk UI{..} = void . after uiWebView keyPressEvent $ do
   (k, m) <- liftM2 (,) eventKeyVal eventModifier
   liftIO . unless (m /= []) $ case k of
-    106 -> uiScrolledWindow `scrollW` (+)
-    107 -> uiScrolledWindow `scrollW` (-)
+    106 -> uiScrolledWindow `scroll` Down
+    107 -> uiScrolledWindow `scroll` Up
     _   -> return ()
   return False
 
