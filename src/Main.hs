@@ -16,7 +16,7 @@ import Data.HTTPSEverywhere.Rules (rewriteURL)
 import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventModifier, eventKeyVal)
 import Graphics.UI.Gtk.Gdk.Keys (KeyVal)
 import Graphics.UI.Gtk.Gdk.EventM (Modifier)
-import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue)
+import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue, adjustmentGetUpper, adjustmentGetLower)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
 import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindow, scrolledWindowGetVAdjustment,scrolledWindowGetHAdjustment)
 import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings, webSettingsEnableScripts, webSettingsEnablePrivateBrowsing)
@@ -64,6 +64,16 @@ scroll window orientation position = do
     Absolute n -> return n
     Relative n -> fmap (+n) $ adjustmentGetValue adjustment
 
+scrollBottom :: ScrolledWindow -> IO ()
+scrollBottom window = scrolledWindowGetVAdjustment window
+                  >>= adjustmentGetUpper
+                  >>= scroll window Vertical . Absolute
+
+scrollTop :: ScrolledWindow -> IO ()
+scrollTop window = scrolledWindowGetVAdjustment window
+               >>= adjustmentGetLower
+               >>= scroll window Vertical . Absolute
+
 data Buffer a = Buffer (Maybe a) (Maybe a) deriving Show
 
 emptyBuffer :: Buffer a
@@ -77,8 +87,10 @@ jk UI{..} = void . after uiWebView keyPressEvent $ do
   (k, m) <- liftM2 (,) eventKeyVal eventModifier
   liftIO . atomically $ takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer (k,m)
   liftIO $ atomically (readTMVar uiKeyBuffer) >>= \case
+    Buffer (Just (103, [])) (Just (103, [])) -> scrollTop uiScrolledWindow
     Buffer _ (Just (106, [])) -> scroll uiScrolledWindow Vertical $ Relative 200
     Buffer _ (Just (107, [])) -> scroll uiScrolledWindow Vertical $ Relative (-200)
+    Buffer _ (Just (71, _)) -> scrollBottom uiScrolledWindow
     _   -> return ()
   return False
 
