@@ -7,6 +7,7 @@
 
 module Main (main) where
 
+import Control.Applicative ((<$>))
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, takeTMVar, putTMVar, readTMVar)
 import Control.Error.Util (hoistMaybe)
 import Control.Exception (bracket_)
@@ -18,20 +19,26 @@ import Control.Monad.Trans.Reader (ReaderT(..), ask, asks)
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.HTTPSEverywhere.Rules (rewriteURL)
-import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventKeyVal)
+import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, eventKeyVal, EventM, EKey)
 import qualified Graphics.UI.Gtk as Attribute (windowTitle) 
+import qualified Graphics.UI.Gtk as Signal (keyPressEvent) 
 import qualified Graphics.UI.Gtk.WebKit.WebSettings as Attribute (webSettingsEnablePrivateBrowsing, webSettingsEnableScripts)
 import Graphics.UI.Gtk.Gdk.Keys (keyName)
 import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue, adjustmentGetUpper, adjustmentGetLower)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
 import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindow, scrolledWindowGetVAdjustment,scrolledWindowGetHAdjustment)
 import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings)
-import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewNew, webViewLoadUri, resourceRequestStarting, webViewGetWebSettings, webViewSetWebSettings, titleChanged)
+import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewNew, webViewLoadUri, webViewGetWebSettings, webViewSetWebSettings)
+import qualified Graphics.UI.Gtk.WebKit.WebView as Signal (titleChanged, resourceRequestStarting)
+import Graphics.UI.Gtk.WebKit.WebFrame (WebFrame)
+import Graphics.UI.Gtk.WebKit.NetworkRequest (NetworkRequest)
+import Graphics.UI.Gtk.WebKit.NetworkResponse (NetworkResponse)
+import Graphics.UI.Gtk.WebKit.WebResource (WebResource)
 import Graphics.UI.Gtk.Windows.Window (Window)
 import Network.URI (parseURI)
 import System.Environment (getArgs)
 import System.Glib.Attributes (AttrOp((:=)), set, Attr)
-import System.Glib.Signals (on, after)
+import System.Glib.Signals (Signal, on)
 import System.Glib.UTFString (glibToString)
 
 data UI = UI
@@ -54,8 +61,43 @@ withUI callback = bracket_ initGUI mainGUI . void $ do
   _ <- callback ui
   widgetShowAll uiWindow >> onDestroy uiWindow mainQuit
 
-httpsEverywhere :: H ()
-httpsEverywhere = ask >>= \UI{..} -> liftIO . void . on uiWebView resourceRequestStarting $ \_ _ requestM _ -> void . runMaybeT $ do
+class Component a where
+  getComponent :: H a
+
+instance Component WebView where
+  getComponent = asks uiWebView
+
+instance Component Window where
+  getComponent = asks uiWindow
+
+class Component a => Settable a b | a -> b, b -> a where
+  getSettings  :: a -> IO b
+  setSettings  :: a -> b -> IO ()
+
+instance Settable WebView WebSettings where
+  getSettings  = webViewGetWebSettings
+  setSettings  = webViewSetWebSettings
+
+instance Settable Window Window where
+  getSettings = return
+  setSettings = \_ _ -> return ()
+
+is :: Settable a b => Attr b c -> c -> H ()
+attribute `is` assigned = getComponent >>= \component -> liftIO $ do
+  settings <- getSettings component
+  set settings [ attribute := assigned ]
+  setSettings component settings
+
+calls :: Component a => Signal a callback -> H callback -> H ()
+signal `calls` getCallback = do
+  component <- getComponent
+  getCallback >>= void . liftIO . on component signal 
+
+setWindowTitle :: H (WebFrame -> String -> IO ())
+setWindowTitle = flip runH <$> ask >>= \unH -> return $ \_ title -> unH (windowTitle `is` title)
+
+tryHTTPS :: H (WebFrame -> WebResource -> Maybe NetworkRequest -> Maybe NetworkResponse -> IO ())
+tryHTTPS = return $ \_ _ requestM _ -> void . runMaybeT $ do
   (req, uri) <- hoistMaybe requestM <:> hoistMaybe . parseURI <=< MaybeT . networkRequestGetUri
   liftIO $ rewriteURL uri >>= networkRequestSetUri req . show
 
@@ -108,15 +150,6 @@ fromKeybindings keybindings (Buffer w x) = fromMaybe (return ()) . fmap snd . fi
   Just _  -> w == y && x == z
 }) $ map (\(b :== c) -> (parseBuffer b, c)) keybindings
 
-assignKeybindings :: [Keybinding] -> H ()
-assignKeybindings keybindings = do
-  UI{..} <- ask
-  liftIO . void . after uiWebView keyPressEvent $ do
-    pressing <- fmap (head . glibToString . keyName) eventKeyVal -- XXX: can key strings have length > 1?
-    liftIO . (>>= \buffer -> runH (fromKeybindings keybindings buffer) UI{..}) . atomically $ do
-      takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing >> readTMVar uiKeyBuffer
-    return False
-
 keys :: [Keybinding]
 keys =
   [ "gg" :== scrollTop
@@ -125,42 +158,23 @@ keys =
   , "G"  :== scrollBottom
   ]
 
-labelWindow :: H ()
-labelWindow = do
-  UI{..} <- ask 
-  liftIO . void . on uiWebView titleChanged $ \_ -> flip runH UI{..} . is windowTitle
-
-class Settable a b | a -> b, b -> a where
-  getComponent :: H a
-  getSettings  :: a -> IO b
-  setSettings  :: a -> b -> IO ()
-
-instance Settable WebView WebSettings where
-  getComponent = asks uiWebView
-  getSettings  = webViewGetWebSettings
-  setSettings  = webViewSetWebSettings
-
-instance Settable Window Window where
-  getComponent = asks uiWindow
-  getSettings = return
-  setSettings = \_ _ -> return ()
-
-is :: Settable a b => Attr b c -> c -> H ()
-attribute `is` assigned = getComponent >>= \component -> liftIO $ do
-  settings <- getSettings component
-  set settings [ attribute := assigned ]
-  setSettings component settings
+tryKeybindings :: [Keybinding] -> H (EventM EKey Bool)
+tryKeybindings keybindings= ask >>= \UI{..} -> return $ do
+  pressing <- fmap (head . glibToString . keyName) eventKeyVal -- XXX: can key strings have length > 1?
+  liftIO . (>>= \buffer -> runH (fromKeybindings keybindings buffer) UI{..}) . atomically $ do
+    takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing >> readTMVar uiKeyBuffer
+  return False
 
 setURL :: String -> H ()
 setURL url = asks uiWebView >>= liftIO . flip webViewLoadUri url
 
 main :: IO ()
 main = withUI . runH $ do
-  httpsEverywhere
+  resourceRequestStarting `calls` tryHTTPS
   webSettingsEnableScripts `is` False
   webSettingsEnablePrivateBrowsing `is` True
-  labelWindow
-  assignKeybindings keys
+  titleChanged `calls` setWindowTitle
+  keyPressEvent `calls` tryKeybindings keys
   liftIO getArgs >>= setURL . head
 
 ------------------------------------------------------------------------
@@ -173,6 +187,15 @@ webSettingsEnablePrivateBrowsing = Attribute.webSettingsEnablePrivateBrowsing
 
 windowTitle :: Attr Window String
 windowTitle = Attribute.windowTitle
+
+titleChanged :: Signal WebView (WebFrame -> String -> IO ())
+titleChanged = Signal.titleChanged
+
+resourceRequestStarting :: Signal WebView (WebFrame -> WebResource -> Maybe NetworkRequest -> Maybe NetworkResponse -> IO ())
+resourceRequestStarting = Signal.resourceRequestStarting
+
+keyPressEvent :: Signal WebView (EventM EKey Bool)
+keyPressEvent = Signal.keyPressEvent
 
 ------------------------------------------------------------------------
 
