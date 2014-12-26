@@ -101,17 +101,21 @@ fromKeymap raw (Buffer w x) = fromMaybe (return ()) . fmap snd . find (\(Buffer 
   Just _  -> w == y && x == z
 }) $ map (\(b :== c) -> (parseBuffer b, c)) raw
 
-jk :: UI -> IO ()
-jk UI{..} = void . after uiWebView keyPressEvent $ do
-  key <- fmap (head . glibToString . keyName) eventKeyVal
-  liftIO . atomically $ takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer key
-  liftIO $ atomically (readTMVar uiKeyBuffer) >>= fromKeymap
-    [ "gg" :== scrollTop uiScrolledWindow
-    , "j"  :== scroll uiScrolledWindow Vertical $ Relative 200
-    , "k"  :== scroll uiScrolledWindow Vertical $ Relative (-200)
-    , "G"  :== scrollBottom uiScrolledWindow
-    ]
+assignKeymap :: Keymap -> UI -> IO ()
+assignKeymap bindings UI{..} = void . after uiWebView keyPressEvent $ do
+  pressing <- fmap (head . glibToString . keyName) eventKeyVal -- XXX: can key strings have length > 1?
+  liftIO .  (>>= fromKeymap bindings) . atomically $ do
+    takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing
+    readTMVar uiKeyBuffer 
   return False
+
+keymap :: UI -> Keymap
+keymap UI{..} = 
+  [ "gg" :== scrollTop uiScrolledWindow
+  , "j"  :== scroll uiScrolledWindow Vertical $ Relative 200
+  , "k"  :== scroll uiScrolledWindow Vertical $ Relative (-200)
+  , "G"  :== scrollBottom uiScrolledWindow
+  ]
 
 data UI = UI
   { uiWindow         :: Window
@@ -135,6 +139,6 @@ main = withUI $ \ui@UI{..} -> do
     , noScript
     , privateBrowsing
     , labelWindow
-    , jk
+    , assignKeymap (keymap ui)
     ]
   getArgs >>= webViewLoadUri uiWebView . head
