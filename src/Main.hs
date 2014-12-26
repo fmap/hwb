@@ -98,27 +98,27 @@ parseBuffer (x:[]) = Buffer Nothing (Just x)
 parseBuffer (x:y:[]) = Buffer (Just x) (Just y)
 parseBuffer (_:xs) = parseBuffer xs
 
-data Binding = String :== H ()
-infixr 0 :==
-type Keymap = [Binding]
+data Keybinding = String :== H ()
 
-fromKeymap :: Keymap -> Buffer Char -> H ()
-fromKeymap raw (Buffer w x) = fromMaybe (return ()) . fmap snd . find (\(Buffer y z,_) -> case y of {
+infixr 0 :==
+
+fromKeybindings :: [Keybinding] -> Buffer Char -> H ()
+fromKeybindings keybindings (Buffer w x) = fromMaybe (return ()) . fmap snd . find (\(Buffer y z,_) -> case y of {
   Nothing -> x == z ;
   Just _  -> w == y && x == z
-}) $ map (\(b :== c) -> (parseBuffer b, c)) raw
+}) $ map (\(b :== c) -> (parseBuffer b, c)) keybindings
 
-assignKeymap :: Keymap -> H ()
-assignKeymap bindings = do
+assignKeybindings :: [Keybinding] -> H ()
+assignKeybindings keybindings = do
   UI{..} <- ask
   liftIO . void . after uiWebView keyPressEvent $ do
     pressing <- fmap (head . glibToString . keyName) eventKeyVal -- XXX: can key strings have length > 1?
-    liftIO . (>>= \buffer -> runH (fromKeymap bindings buffer) UI{..}) . atomically $ do
+    liftIO . (>>= \buffer -> runH (fromKeybindings keybindings buffer) UI{..}) . atomically $ do
       takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing >> readTMVar uiKeyBuffer
     return False
 
-keymap :: Keymap
-keymap =
+keys :: [Keybinding]
+keys =
   [ "gg" :== scrollTop
   , "j"  :== scroll Vertical $ Relative 200
   , "k"  :== scroll Vertical $ Relative (-200)
@@ -160,7 +160,7 @@ main = withUI . runH $ do
   webSettingsEnableScripts `is` False
   webSettingsEnablePrivateBrowsing `is` True
   labelWindow
-  assignKeymap keymap
+  assignKeybindings keys
   liftIO getArgs >>= setURL . head
 
 ------------------------------------------------------------------------
