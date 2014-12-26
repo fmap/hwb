@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedStrings   #-}
 
 module Main (main) where
 
@@ -8,14 +9,15 @@ import Prelude hiding (Either(..))
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, takeTMVar, putTMVar, readTMVar)
 import Control.Error.Util (hoistMaybe)
 import Control.Exception (bracket, bracket_)
-import Control.Monad (liftM2, liftM4, void)
+import Control.Monad (liftM4, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 import Control.Monad.Trans.Maybe (MaybeT(..))
+import Data.List (find)
+import Data.Maybe (fromMaybe)
 import Data.HTTPSEverywhere.Rules (rewriteURL)
-import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventModifier, eventKeyVal)
-import Graphics.UI.Gtk.Gdk.Keys (KeyVal)
-import Graphics.UI.Gtk.Gdk.EventM (Modifier)
+import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventKeyVal)
+import Graphics.UI.Gtk.Gdk.Keys (keyName)
 import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue, adjustmentGetUpper, adjustmentGetLower)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
 import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindow, scrolledWindowGetVAdjustment,scrolledWindowGetHAdjustment)
@@ -26,6 +28,7 @@ import Network.URI (parseURI)
 import System.Environment (getArgs)
 import System.Glib.Attributes (ReadWriteAttr, AttrOp((:=)), set)
 import System.Glib.Signals (on, after)
+import System.Glib.UTFString (glibToString)
 
 applySettingG :: a -> WebView -> ReadWriteAttr WebSettings a a -> IO ()
 applySettingG assignment view = bracket (webViewGetWebSettings view) (webViewSetWebSettings view) . flip set . return . (:= assignment)
@@ -74,7 +77,7 @@ scrollTop window = scrolledWindowGetVAdjustment window
                >>= adjustmentGetLower
                >>= scroll window Vertical . Absolute
 
-data Buffer a = Buffer (Maybe a) (Maybe a) deriving Show
+data Buffer a = Buffer (Maybe a) (Maybe a) deriving (Show, Eq)
 
 emptyBuffer :: Buffer a
 emptyBuffer = Buffer Nothing Nothing
@@ -82,23 +85,39 @@ emptyBuffer = Buffer Nothing Nothing
 pushBuffer :: a -> Buffer a -> Buffer a
 pushBuffer c (Buffer _ b) = Buffer b $ Just c
 
+parseBuffer :: String -> Buffer Char -- xxx hack
+parseBuffer [] = Buffer Nothing Nothing
+parseBuffer (x:[]) = Buffer Nothing (Just x)
+parseBuffer (x:y:[]) = Buffer (Just x) (Just y)
+parseBuffer (_:xs) = parseBuffer xs
+
+data Binding = (:==) String (IO ())
+infixr 0 :==
+type Keymap = [Binding]
+
+fromKeymap :: Keymap -> Buffer Char -> IO ()
+fromKeymap raw (Buffer w x) = fromMaybe (return ()) . fmap snd . find (\(Buffer y z,_) -> case y of {
+  Nothing -> x == z ;
+  Just _  -> w == y && x == z
+}) $ map (\(b :== c) -> (parseBuffer b, c)) raw
+
 jk :: UI -> IO ()
 jk UI{..} = void . after uiWebView keyPressEvent $ do
-  (k, m) <- liftM2 (,) eventKeyVal eventModifier
-  liftIO . atomically $ takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer (k,m)
-  liftIO $ atomically (readTMVar uiKeyBuffer) >>= \case
-    Buffer (Just (103, [])) (Just (103, [])) -> scrollTop uiScrolledWindow
-    Buffer _ (Just (106, [])) -> scroll uiScrolledWindow Vertical $ Relative 200
-    Buffer _ (Just (107, [])) -> scroll uiScrolledWindow Vertical $ Relative (-200)
-    Buffer _ (Just (71, _)) -> scrollBottom uiScrolledWindow
-    _   -> return ()
+  key <- fmap (head . glibToString . keyName) eventKeyVal
+  liftIO . atomically $ takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer key
+  liftIO $ atomically (readTMVar uiKeyBuffer) >>= fromKeymap
+    [ "gg" :== scrollTop uiScrolledWindow
+    , "j"  :== scroll uiScrolledWindow Vertical $ Relative 200
+    , "k"  :== scroll uiScrolledWindow Vertical $ Relative (-200)
+    , "G"  :== scrollBottom uiScrolledWindow
+    ]
   return False
 
 data UI = UI
   { uiWindow         :: Window
   , uiScrolledWindow :: ScrolledWindow
   , uiWebView        :: WebView
-  , uiKeyBuffer      :: TMVar (Buffer (KeyVal, [Modifier]))
+  , uiKeyBuffer      :: TMVar (Buffer Char)
   }
 
 withUI :: (UI -> IO a) -> IO ()
