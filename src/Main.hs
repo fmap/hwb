@@ -1,16 +1,21 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE LambdaCase          #-}
 
 module Main (main) where
 
 import Prelude hiding (Either(..))
+import Control.Concurrent.STM.TMVar (TMVar, newTMVar, takeTMVar, putTMVar, readTMVar)
 import Control.Error.Util (hoistMaybe)
 import Control.Exception (bracket, bracket_)
-import Control.Monad (liftM2, liftM3, void, unless)
+import Control.Monad (liftM2, liftM4, void)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.STM (atomically)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Data.HTTPSEverywhere.Rules (rewriteURL)
 import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventModifier, eventKeyVal)
+import Graphics.UI.Gtk.Gdk.Keys (KeyVal)
+import Graphics.UI.Gtk.Gdk.EventM (Modifier)
 import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
 import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindow, scrolledWindowGetVAdjustment,scrolledWindowGetHAdjustment)
@@ -59,12 +64,21 @@ scroll window orientation position = do
     Absolute n -> return n
     Relative n -> fmap (+n) $ adjustmentGetValue adjustment
 
+data Buffer a = Buffer (Maybe a) (Maybe a) deriving Show
+
+emptyBuffer :: Buffer a
+emptyBuffer = Buffer Nothing Nothing
+
+pushBuffer :: a -> Buffer a -> Buffer a
+pushBuffer c (Buffer _ b) = Buffer b $ Just c
+
 jk :: UI -> IO ()
 jk UI{..} = void . after uiWebView keyPressEvent $ do
   (k, m) <- liftM2 (,) eventKeyVal eventModifier
-  liftIO . unless (m /= []) $ case k of
-    106 -> scroll uiScrolledWindow Vertical $ Relative 200
-    107 -> scroll uiScrolledWindow Vertical $ Relative (-200)
+  liftIO . atomically $ takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer (k,m)
+  liftIO $ atomically (readTMVar uiKeyBuffer) >>= \case
+    Buffer _ (Just (106, [])) -> scroll uiScrolledWindow Vertical $ Relative 200
+    Buffer _ (Just (107, [])) -> scroll uiScrolledWindow Vertical $ Relative (-200)
     _   -> return ()
   return False
 
@@ -72,11 +86,12 @@ data UI = UI
   { uiWindow         :: Window
   , uiScrolledWindow :: ScrolledWindow
   , uiWebView        :: WebView
+  , uiKeyBuffer      :: TMVar (Buffer (KeyVal, [Modifier]))
   }
 
 withUI :: (UI -> IO a) -> IO ()
 withUI callback = bracket_ initGUI mainGUI . void $ do
-  ui@UI{..} <- liftM3 UI windowNew (scrolledWindowNew Nothing Nothing) webViewNew
+  ui@UI{..} <- liftM4 UI windowNew (scrolledWindowNew Nothing Nothing) webViewNew (atomically $ newTMVar emptyBuffer)
   uiWindow `containerAdd` uiScrolledWindow
   uiScrolledWindow `containerAdd` uiWebView
   _ <- callback ui
