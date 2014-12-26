@@ -1,18 +1,18 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RecordWildCards            #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 
 module Main (main) where
 
-import Prelude hiding (Either(..))
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, takeTMVar, putTMVar, readTMVar)
 import Control.Error.Util (hoistMaybe)
-import Control.Exception (bracket, bracket_)
+import Control.Exception (bracket_)
+import Control.Applicative ((<$>), (<*>))
 import Control.Monad (liftM4, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 import Control.Monad.Trans.Maybe (MaybeT(..))
+import Control.Monad.Trans.Reader (ReaderT(..), ask, asks)
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.HTTPSEverywhere.Rules (rewriteURL)
@@ -26,29 +26,43 @@ import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewNew, webViewLoadUri, reso
 import Graphics.UI.Gtk.Windows.Window (Window, windowTitle)
 import Network.URI (parseURI)
 import System.Environment (getArgs)
-import System.Glib.Attributes (ReadWriteAttr, AttrOp((:=)), set)
+import System.Glib.Attributes (AttrOp((:=)), set, Attr)
 import System.Glib.Signals (on, after)
 import System.Glib.UTFString (glibToString)
 
-applySettingG :: a -> WebView -> ReadWriteAttr WebSettings a a -> IO ()
-applySettingG assignment view = bracket (webViewGetWebSettings view) (webViewSetWebSettings view) . flip set . return . (:= assignment)
+data UI = UI
+  { uiWindow         :: Window
+  , uiScrolledWindow :: ScrolledWindow
+  , uiWebView        :: WebView
+  , uiKeyBuffer      :: TMVar (Buffer Char)
+  }
 
-setView, unsetView :: ReadWriteAttr WebSettings Bool Bool -> WebView -> IO ()
-setView = flip $ applySettingG True; unsetView = flip $ applySettingG False
+type H a = ReaderT UI IO a
 
-noScript, privateBrowsing :: UI -> IO ()
-noScript = unsetView webSettingsEnableScripts . uiWebView
-privateBrowsing = setView webSettingsEnablePrivateBrowsing . uiWebView
+runH :: H a -> UI -> IO a
+runH = runReaderT
 
-httpsEverywhere :: UI -> IO ()
-httpsEverywhere UI{..} = void . on uiWebView resourceRequestStarting $ \_ _ requestM _ -> void . runMaybeT $ do
-  request  <- hoistMaybe requestM
-  httpsURI <- MaybeT (networkRequestGetUri request) >>= hoistMaybe . parseURI >>= liftIO . rewriteURL
-  liftIO . networkRequestSetUri request $ show httpsURI
+withUI :: (UI -> IO a) -> IO ()
+withUI callback = bracket_ initGUI mainGUI . void $ do
+  ui@UI{..} <- liftM4 UI windowNew (scrolledWindowNew Nothing Nothing) webViewNew (atomically $ newTMVar emptyBuffer)
+  uiWindow `containerAdd` uiScrolledWindow
+  uiScrolledWindow `containerAdd` uiWebView
+  _ <- callback ui
+  widgetShowAll uiWindow >> onDestroy uiWindow mainQuit
 
-labelWindow :: UI -> IO ()
-labelWindow UI{..} = void . on uiWebView titleChanged $ \_ (title :: String) -> do
-  set uiWindow [ windowTitle := title ]
+httpsEverywhere :: H ()
+httpsEverywhere = do
+  UI{..} <- ask;
+  liftIO . void . on uiWebView resourceRequestStarting $ \_ _ requestM _ -> void . runMaybeT $ do
+    request  <- hoistMaybe requestM
+    httpsURI <- MaybeT (networkRequestGetUri request) >>= hoistMaybe . parseURI >>= liftIO . rewriteURL
+    liftIO . networkRequestSetUri request $ show httpsURI
+
+labelWindow :: H ()
+labelWindow = do
+  (window, webView) <- (,) <$> asks uiWindow <*> asks uiWebView
+  liftIO . void . on webView titleChanged $ \_ (title :: String) -> do
+    set window [ windowTitle := title ]
 
 (&) :: a -> (a -> b) -> b
 (&) = flip ($)
@@ -58,8 +72,8 @@ data Orientation = Horizontal | Vertical
 
 data Position a  = Absolute a | Relative a
 
-scroll :: ScrolledWindow -> Orientation -> Position Double -> IO ()
-scroll window orientation position = do
+scroll :: Orientation -> Position Double -> H ()
+scroll orientation position = asks uiScrolledWindow >>= \window -> liftIO $ do
   adjustment <- window & case orientation of 
     Horizontal -> scrolledWindowGetHAdjustment
     Vertical   -> scrolledWindowGetVAdjustment
@@ -67,15 +81,17 @@ scroll window orientation position = do
     Absolute n -> return n
     Relative n -> fmap (+n) $ adjustmentGetValue adjustment
 
-scrollBottom :: ScrolledWindow -> IO ()
-scrollBottom window = scrolledWindowGetVAdjustment window
-                  >>= adjustmentGetUpper
-                  >>= scroll window Vertical . Absolute
+scrollBottom :: H ()
+scrollBottom = do
+  window   <- asks uiScrolledWindow
+  position <- liftIO $ scrolledWindowGetVAdjustment window >>= adjustmentGetUpper
+  scroll Vertical $ Absolute position
 
-scrollTop :: ScrolledWindow -> IO ()
-scrollTop window = scrolledWindowGetVAdjustment window
-               >>= adjustmentGetLower
-               >>= scroll window Vertical . Absolute
+scrollTop :: H ()
+scrollTop = do
+  window   <- asks uiScrolledWindow
+  position <- liftIO $ scrolledWindowGetVAdjustment window >>= adjustmentGetLower
+  scroll Vertical $ Absolute position
 
 data Buffer a = Buffer (Maybe a) (Maybe a) deriving (Show, Eq)
 
@@ -91,54 +107,48 @@ parseBuffer (x:[]) = Buffer Nothing (Just x)
 parseBuffer (x:y:[]) = Buffer (Just x) (Just y)
 parseBuffer (_:xs) = parseBuffer xs
 
-data Binding = (:==) String (IO ())
+data Binding = String :== H ()
 infixr 0 :==
 type Keymap = [Binding]
 
-fromKeymap :: Keymap -> Buffer Char -> IO ()
+fromKeymap :: Keymap -> Buffer Char -> H ()
 fromKeymap raw (Buffer w x) = fromMaybe (return ()) . fmap snd . find (\(Buffer y z,_) -> case y of {
   Nothing -> x == z ;
   Just _  -> w == y && x == z
 }) $ map (\(b :== c) -> (parseBuffer b, c)) raw
 
-assignKeymap :: Keymap -> UI -> IO ()
-assignKeymap bindings UI{..} = void . after uiWebView keyPressEvent $ do
-  pressing <- fmap (head . glibToString . keyName) eventKeyVal -- XXX: can key strings have length > 1?
-  liftIO .  (>>= fromKeymap bindings) . atomically $ do
-    takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing
-    readTMVar uiKeyBuffer 
-  return False
+assignKeymap :: Keymap -> H ()
+assignKeymap bindings = do
+  UI{..} <- ask
+  liftIO . void . after uiWebView keyPressEvent $ do
+    pressing <- fmap (head . glibToString . keyName) eventKeyVal -- XXX: can key strings have length > 1?
+    liftIO . (>>= \buffer -> runH (fromKeymap bindings buffer) UI{..}) . atomically $ do
+      takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing
+      readTMVar uiKeyBuffer
+    return False
 
-keymap :: UI -> Keymap
-keymap UI{..} = 
-  [ "gg" :== scrollTop uiScrolledWindow
-  , "j"  :== scroll uiScrolledWindow Vertical $ Relative 200
-  , "k"  :== scroll uiScrolledWindow Vertical $ Relative (-200)
-  , "G"  :== scrollBottom uiScrolledWindow
+keymap :: Keymap
+keymap =
+  [ "gg" :== scrollTop
+  , "j"  :== scroll Vertical $ Relative 200
+  , "k"  :== scroll Vertical $ Relative (-200)
+  , "G"  :== scrollBottom
   ]
 
-data UI = UI
-  { uiWindow         :: Window
-  , uiScrolledWindow :: ScrolledWindow
-  , uiWebView        :: WebView
-  , uiKeyBuffer      :: TMVar (Buffer Char)
-  }
+is :: Attr WebSettings a -> a -> H ()
+attribute `is` assigned = asks uiWebView >>= \webView -> liftIO $ do
+  webSettings <- webViewGetWebSettings webView
+  set webSettings [ attribute := assigned ]
+  webViewSetWebSettings webView webSettings
 
-withUI :: (UI -> IO a) -> IO ()
-withUI callback = bracket_ initGUI mainGUI . void $ do
-  ui@UI{..} <- liftM4 UI windowNew (scrolledWindowNew Nothing Nothing) webViewNew (atomically $ newTMVar emptyBuffer)
-  uiWindow `containerAdd` uiScrolledWindow
-  uiScrolledWindow `containerAdd` uiWebView
-  _ <- callback ui
-  widgetShowAll uiWindow >> onDestroy uiWindow mainQuit
+setURL :: String -> H ()
+setURL url = asks uiWebView >>= liftIO . flip webViewLoadUri url
 
 main :: IO ()
-main = withUI $ \ui@UI{..} -> do
-  sequence_ . map ($ ui) $ 
-    [ httpsEverywhere
-    , noScript
-    , privateBrowsing
-    , labelWindow
-    , assignKeymap (keymap ui)
-    ]
-  getArgs >>= webViewLoadUri uiWebView . head
+main = withUI . runH $ do
+  httpsEverywhere
+  webSettingsEnableScripts `is` False
+  webSettingsEnablePrivateBrowsing `is` True
+  labelWindow
+  assignKeymap keymap
+  liftIO getArgs >>= setURL . head
