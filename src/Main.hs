@@ -11,7 +11,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Maybe (MaybeT(..))
 import Data.HTTPSEverywhere.Rules (rewriteURL)
 import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventModifier, eventKeyVal)
-import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue, adjustmentGetStepIncrement)
+import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
 import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindow, scrolledWindowGetVAdjustment,scrolledWindowGetHAdjustment)
 import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings, webSettingsEnableScripts, webSettingsEnablePrivateBrowsing)
@@ -46,25 +46,25 @@ labelWindow UI{..} = void . on uiWebView titleChanged $ \_ (title :: String) -> 
 (&) = flip ($)
 infixr 0 &
 
-(<&>) :: Functor f => f a -> (a -> b) -> f b
-(<&>) = flip fmap
-infixr 0 <&>
+data Orientation = Horizontal | Vertical
 
-data Orientation = Left | Up | Down | Right deriving Eq
+data Position a  = Absolute a | Relative a
 
-scroll :: ScrolledWindow -> Orientation -> IO ()
-scroll window orientation = do
-  adjustment <- window & if orientation `elem` [Left, Right] then scrolledWindowGetHAdjustment else scrolledWindowGetVAdjustment
-  position   <- adjustmentGetValue adjustment
-  increment  <- adjustmentGetStepIncrement adjustment <&> if orientation `elem` [Left, Up] then negate else id
-  adjustmentSetValue adjustment $ position + increment
+scroll :: ScrolledWindow -> Orientation -> Position Double -> IO ()
+scroll window orientation position = do
+  adjustment <- window & case orientation of 
+    Horizontal -> scrolledWindowGetHAdjustment
+    Vertical   -> scrolledWindowGetVAdjustment
+  adjustmentSetValue adjustment =<< case position of
+    Absolute n -> return n
+    Relative n -> fmap (+n) $ adjustmentGetValue adjustment
 
 jk :: UI -> IO ()
 jk UI{..} = void . after uiWebView keyPressEvent $ do
   (k, m) <- liftM2 (,) eventKeyVal eventModifier
   liftIO . unless (m /= []) $ case k of
-    106 -> uiScrolledWindow `scroll` Down
-    107 -> uiScrolledWindow `scroll` Up
+    106 -> scroll uiScrolledWindow Vertical $ Relative 200
+    107 -> scroll uiScrolledWindow Vertical $ Relative (-200)
     _   -> return ()
   return False
 
