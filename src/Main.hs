@@ -3,13 +3,14 @@
 {-# LANGUAGE OverloadedStrings      #-}
 {-# LANGUAGE RecordWildCards        #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TupleSections          #-}
 
 module Main (main) where
 
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, takeTMVar, putTMVar, readTMVar)
 import Control.Error.Util (hoistMaybe)
 import Control.Exception (bracket_)
-import Control.Monad (liftM4, void)
+import Control.Monad ((<=<), liftM4, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
 import Control.Monad.Trans.Maybe (MaybeT(..))
@@ -18,13 +19,15 @@ import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.HTTPSEverywhere.Rules (rewriteURL)
 import Graphics.UI.Gtk (containerAdd, initGUI, mainGUI, mainQuit, onDestroy, widgetShowAll, scrolledWindowNew, windowNew, keyPressEvent, eventKeyVal)
+import qualified Graphics.UI.Gtk as Attribute (windowTitle) 
+import qualified Graphics.UI.Gtk.WebKit.WebSettings as Attribute (webSettingsEnablePrivateBrowsing, webSettingsEnableScripts)
 import Graphics.UI.Gtk.Gdk.Keys (keyName)
 import Graphics.UI.Gtk.Misc.Adjustment (adjustmentGetValue, adjustmentSetValue, adjustmentGetUpper, adjustmentGetLower)
 import Graphics.UI.Gtk.WebKit.NetworkRequest (networkRequestGetUri, networkRequestSetUri)
 import Graphics.UI.Gtk.Scrolling.ScrolledWindow (ScrolledWindow, scrolledWindowGetVAdjustment,scrolledWindowGetHAdjustment)
-import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings, webSettingsEnableScripts, webSettingsEnablePrivateBrowsing)
+import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings)
 import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewNew, webViewLoadUri, resourceRequestStarting, webViewGetWebSettings, webViewSetWebSettings, titleChanged)
-import Graphics.UI.Gtk.Windows.Window (Window, windowTitle)
+import Graphics.UI.Gtk.Windows.Window (Window)
 import Network.URI (parseURI)
 import System.Environment (getArgs)
 import System.Glib.Attributes (AttrOp((:=)), set, Attr)
@@ -52,16 +55,9 @@ withUI callback = bracket_ initGUI mainGUI . void $ do
   widgetShowAll uiWindow >> onDestroy uiWindow mainQuit
 
 httpsEverywhere :: H ()
-httpsEverywhere = do
-  UI{..} <- ask;
-  liftIO . void . on uiWebView resourceRequestStarting $ \_ _ requestM _ -> void . runMaybeT $ do
-    request  <- hoistMaybe requestM
-    httpsURI <- MaybeT (networkRequestGetUri request) >>= hoistMaybe . parseURI >>= liftIO . rewriteURL
-    liftIO . networkRequestSetUri request $ show httpsURI
-
-(&) :: a -> (a -> b) -> b
-(&) = flip ($)
-infixr 0 &
+httpsEverywhere = ask >>= \UI{..} -> liftIO . void . on uiWebView resourceRequestStarting $ \_ _ requestM _ -> void . runMaybeT $ do
+  (req, uri) <- hoistMaybe requestM <:> hoistMaybe . parseURI <=< MaybeT . networkRequestGetUri
+  liftIO $ rewriteURL uri >>= networkRequestSetUri req . show
 
 data Orientation = Horizontal | Vertical
 
@@ -118,8 +114,7 @@ assignKeymap bindings = do
   liftIO . void . after uiWebView keyPressEvent $ do
     pressing <- fmap (head . glibToString . keyName) eventKeyVal -- XXX: can key strings have length > 1?
     liftIO . (>>= \buffer -> runH (fromKeymap bindings buffer) UI{..}) . atomically $ do
-      takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing
-      readTMVar uiKeyBuffer
+      takeTMVar uiKeyBuffer >>= putTMVar uiKeyBuffer . pushBuffer pressing >> readTMVar uiKeyBuffer
     return False
 
 keymap :: Keymap
@@ -133,8 +128,7 @@ keymap =
 labelWindow :: H ()
 labelWindow = do
   UI{..} <- ask 
-  liftIO . void . on uiWebView titleChanged $ \_ title -> flip runH UI{..} $ do
-    (windowTitle :: Attr Window String) `is` title
+  liftIO . void . on uiWebView titleChanged $ \_ -> flip runH UI{..} . is windowTitle
 
 class Settable a b | a -> b, b -> a where
   getComponent :: H a
@@ -163,8 +157,29 @@ setURL url = asks uiWebView >>= liftIO . flip webViewLoadUri url
 main :: IO ()
 main = withUI . runH $ do
   httpsEverywhere
-  (webSettingsEnableScripts :: Attr WebSettings Bool) `is` False
-  (webSettingsEnablePrivateBrowsing :: Attr WebSettings Bool) `is` True
+  webSettingsEnableScripts `is` False
+  webSettingsEnablePrivateBrowsing `is` True
   labelWindow
   assignKeymap keymap
   liftIO getArgs >>= setURL . head
+
+------------------------------------------------------------------------
+
+webSettingsEnableScripts :: Attr WebSettings Bool
+webSettingsEnableScripts = Attribute.webSettingsEnableScripts
+
+webSettingsEnablePrivateBrowsing :: Attr WebSettings Bool
+webSettingsEnablePrivateBrowsing = Attribute.webSettingsEnablePrivateBrowsing
+
+windowTitle :: Attr Window String
+windowTitle = Attribute.windowTitle
+
+------------------------------------------------------------------------
+
+(<:>) :: Monad m => m a -> (a -> m b) -> m (a, b)
+a <:> g = a >>= \a' -> g a' >>= return . (a', )
+infixr 1 <:>
+
+(&) :: a -> (a -> b) -> b
+(&) = flip ($)
+infixr 0 &
