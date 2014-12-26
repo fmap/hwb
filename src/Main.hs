@@ -1,13 +1,14 @@
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE RecordWildCards        #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
 
 module Main (main) where
 
 import Control.Concurrent.STM.TMVar (TMVar, newTMVar, takeTMVar, putTMVar, readTMVar)
 import Control.Error.Util (hoistMaybe)
 import Control.Exception (bracket_)
-import Control.Applicative ((<$>), (<*>))
 import Control.Monad (liftM4, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.STM (atomically)
@@ -57,12 +58,6 @@ httpsEverywhere = do
     request  <- hoistMaybe requestM
     httpsURI <- MaybeT (networkRequestGetUri request) >>= hoistMaybe . parseURI >>= liftIO . rewriteURL
     liftIO . networkRequestSetUri request $ show httpsURI
-
-labelWindow :: H ()
-labelWindow = do
-  (window, webView) <- (,) <$> asks uiWindow <*> asks uiWebView
-  liftIO . void . on webView titleChanged $ \_ (title :: String) -> do
-    set window [ windowTitle := title ]
 
 (&) :: a -> (a -> b) -> b
 (&) = flip ($)
@@ -135,11 +130,32 @@ keymap =
   , "G"  :== scrollBottom
   ]
 
-is :: Attr WebSettings a -> a -> H ()
-attribute `is` assigned = asks uiWebView >>= \webView -> liftIO $ do
-  webSettings <- webViewGetWebSettings webView
-  set webSettings [ attribute := assigned ]
-  webViewSetWebSettings webView webSettings
+labelWindow :: H ()
+labelWindow = do
+  UI{..} <- ask 
+  liftIO . void . on uiWebView titleChanged $ \_ title -> flip runH UI{..} $ do
+    (windowTitle :: Attr Window String) `is` title
+
+class Settable a b | a -> b, b -> a where
+  getComponent :: H a
+  getSettings  :: a -> IO b
+  setSettings  :: a -> b -> IO ()
+
+instance Settable WebView WebSettings where
+  getComponent = asks uiWebView
+  getSettings  = webViewGetWebSettings
+  setSettings  = webViewSetWebSettings
+
+instance Settable Window Window where
+  getComponent = asks uiWindow
+  getSettings = return
+  setSettings = \_ _ -> return ()
+
+is :: Settable a b => Attr b c -> c -> H ()
+attribute `is` assigned = getComponent >>= \component -> liftIO $ do
+  settings <- getSettings component
+  set settings [ attribute := assigned ]
+  setSettings component settings
 
 setURL :: String -> H ()
 setURL url = asks uiWebView >>= liftIO . flip webViewLoadUri url
@@ -147,8 +163,8 @@ setURL url = asks uiWebView >>= liftIO . flip webViewLoadUri url
 main :: IO ()
 main = withUI . runH $ do
   httpsEverywhere
-  webSettingsEnableScripts `is` False
-  webSettingsEnablePrivateBrowsing `is` True
+  (webSettingsEnableScripts :: Attr WebSettings Bool) `is` False
+  (webSettingsEnablePrivateBrowsing :: Attr WebSettings Bool) `is` True
   labelWindow
   assignKeymap keymap
   liftIO getArgs >>= setURL . head
