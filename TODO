@@ -1,0 +1,2 @@
+* Refactor the "Keybinding" code to be less evil.
+* Introduce concurrency/threading to "tryHTTPS".
