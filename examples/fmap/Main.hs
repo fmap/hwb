@@ -14,14 +14,14 @@ import HWB.Main (hwb)
 import HWB.Plugin.HTTPSEverywhere (tryHTTPS)
 import HWB.Plugin.Keybinding (Keybinding(..), tryKeybindings)
 import HWB.Plugin.Navigation (setURL)
-import HWB.Plugin.Scrolling (Orientation(..), Position(..), scroll, scrollTop, scrollBottom)
+import HWB.Plugin.Scrolling (scrollTop, scrollBottom, pageDown, pageUp)
 import HWB.Plugin.WindowTitle (setWindowTitle)
 
 keys :: [Keybinding]
 keys =
   [ "gg" :== scrollTop
-  , "j"  :== scroll Vertical $ Relative 200
-  , "k"  :== scroll Vertical $ Relative (-200)
+  , "j"  :== pageDown
+  , "k"  :== pageUp
   , "G"  :== scrollBottom
   ]
 
