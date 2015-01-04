@@ -1,3 +1,6 @@
+{-# LANGUAGE LambdaCase   #-}
+{-# LANGUAGE ViewPatterns #-}
+
 -- Copyright (c) 2009 Daniel Schoepe
 -- 
 -- All rights reserved.
@@ -37,17 +40,21 @@ module HWB.Plugin.Utilities.ExtensibleState (
 import Prelude hiding (lookup)
 import Control.Monad.Trans.Class (MonadTrans(lift))
 import Control.Monad.Trans.State (modify, gets)
+import Data.Functor.Infix ((<&>))
 import Data.Map (insert, lookup)
 import Data.Maybe (fromMaybe)
-import Data.Typeable (typeOf, cast)
+import Data.Typeable (Typeable(..), typeOf, cast)
+import XMonad.Core (ExtensionClass(..), StateExtension(..))
 
-import HWB.Core (H, ExtensionClass(..), StateExtension(..))
+import HWB.Core (H)
 
 put :: ExtensionClass a => a -> H ()
-put value = lift . modify $ insert (show $ typeOf value) (StateExtension value)
+put value = lift . modify $ insert (show $ typeOf value) (extensionType value)
 
 get :: ExtensionClass a => H a
 get = getState undefined
   where getState :: ExtensionClass a => a -> H a
-        getState extensionClassType = fmap (maybe initialValue id . cast . fromMaybe initialValue)
-                                    $ lift . gets $ lookup (show $ typeOf extensionClassType)
+        getState (show . typeOf -> key) = lift (gets $ lookup key) <&> fromMaybe initialValue . \case
+                                            Just (StateExtension val) -> cast val
+                                            Just (PersistentExtension val) -> cast val
+                                            _ -> return initialValue

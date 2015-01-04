@@ -7,9 +7,7 @@ module HWB.Core (
   H,
   runH,
   is,
-  calls,
-  ExtensionClass(..),
-  StateExtension(..)
+  calls
 ) where
 
 import Control.Monad (void)
@@ -23,6 +21,7 @@ import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewGetWebSettings, webViewSe
 import Graphics.UI.Gtk.Windows.Window (Window)
 import System.Glib.Attributes (AttrOp((:=)), set, Attr)
 import System.Glib.Signals (Signal, on)
+import XMonad.Core (ExtensionClass(..), StateExtension)
 
 import HWB.UserInterface (UserInterface(..))
 
@@ -41,17 +40,6 @@ calls :: Component a => Signal a callback -> H callback -> H ()
 signal `calls` getCallback = do
   component <- getComponent
   getCallback >>= void . liftIO . on component signal 
-
-------------------------------------------------------------------------
-
-class Typeable a => ExtensionClass a where
-  initialValue :: a
-
-data StateExtension = forall a. ExtensionClass a => StateExtension a
-  deriving Typeable
-
-instance ExtensionClass StateExtension where
-  initialValue = initialValue
 
 ------------------------------------------------------------------------
 

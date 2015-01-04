@@ -18,8 +18,9 @@ import Graphics.UI.Gtk.Gdk.EventM (EventM, EKey, eventKeyVal)
 import Graphics.UI.Gtk.Gdk.Keys (keyName)
 import System.Glib.UTFString (glibToString)
 import System.IO.Unsafe (unsafePerformIO)
+import XMonad.Core (ExtensionClass(..))
 
-import HWB.Core (H, runH, ExtensionClass(..))
+import HWB.Core (H, runH)
 import qualified HWB.Plugin.Utilities.ExtensibleState as HWB (get)
 
 data Buffer a = Buffer (Maybe a) (Maybe a) deriving (Show, Eq, Typeable)

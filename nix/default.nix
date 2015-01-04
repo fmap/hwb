@@ -5,7 +5,7 @@
 let
   inherit (pkgs) makeWrapper glib_networking;
   inherit (pkgs.gnome3) gsettings_desktop_schemas;
-  inherit (haskellPackages) webkit cabal gtk cabalInstall;
+  inherit (haskellPackages) webkit cabal gtk xmonad cabalInstall functorInfix;
   httpsEverywhereRules = import paths.httpsEverywhereRules { inherit pkgs; };
 in cabal.mkDerivation (self: {
   pname = "hwb";
@@ -14,7 +14,7 @@ in cabal.mkDerivation (self: {
   isLibrary = false;
   isExecutable = true;
   doCheck = false;
-  buildDepends = [ gtk webkit httpsEverywhereRules ];
+  buildDepends = [ gtk webkit httpsEverywhereRules xmonad functorInfix ];
   buildTools = [ cabalInstall makeWrapper ];
   postInstall = ''
     wrapProgram $out/bin/hwb \
