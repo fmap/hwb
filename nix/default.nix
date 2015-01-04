@@ -17,7 +17,7 @@ in cabal.mkDerivation (self: {
   buildDepends = [ gtk webkit httpsEverywhereRules xmonad functorInfix ];
   buildTools = [ cabalInstall makeWrapper ];
   postInstall = ''
-    wrapProgram $out/bin/hwb \
+    wrapProgram $out/bin/hwb-fmap \
       --prefix GIO_EXTRA_MODULES : $(find ${glib_networking} -type d -name modules) \
       --prefix XDG_DATA_DIRS : $(find ${gsettings_desktop_schemas}/share/gsettings-schemas/ -mindepth 1 -maxdepth 1 -type d)
   '';

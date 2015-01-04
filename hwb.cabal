@@ -1,28 +1,78 @@
-name:                hwb
-version:             0.0.1
-synopsis:            haskell web browser
-homepage:            https://github.com/fmap/hwb
-license:             MIT
-license-file:        LICENSE
-author:              vi
-maintainer:          me@vikramverma.com
-category:            Network
-build-type:          Simple
-cabal-version:       >=1.10
+name:
+  hwb
+version:
+  0.0.1
+synopsis:
+  Ha(?:ck|skell)er's web browser.
+homepage:
+  https://github.com/fmap/hwb
+license:
+  MIT
+license-file:
+  LICENSE
+author:
+  vi
+maintainer:
+  me@vikramverma.com
+category:
+  Network
+build-type:
+  Simple
+cabal-version:
+  >=1.10
 
-executable hwb
-  main-is:             Main.hs
-  build-depends:       base >=4.7 && <4.8,
-                       containers >= 0.5 && <0.6,
-                       errors >= 1.4 && <1.5,
-                       functor-infix >= 0.0 && <0.1,
-                       glib >=0.13 && <0.14,
-                       gtk >=0.13 && <0.14,
-                       https-everywhere-rules >= 0.1 && <0.2,
-                       network-uri >= 2.6 && <2.7,
-                       stm >= 2.4 && <2.5,
-                       transformers >= 0.3 && <0.4,
-                       webkit >=0.13 && <0.14,
-                       xmonad >= 0.11 && <0.12
-  hs-source-dirs:      src
-  default-language:    Haskell2010
+library
+  exposed-modules:
+    HWB.Core,
+    HWB.Main,
+    HWB.UserInterface,
+    HWB.Plugin.HTTPSEverywhere,
+    HWB.Plugin.Keybinding,
+    HWB.Plugin.Navigation,
+    HWB.Plugin.Scrolling,
+    HWB.Plugin.Utilities.ExtensibleState,
+    HWB.Plugin.WindowTitle,
+    Graphics.UI.Gtk.Abstract.Widget.Concrete,
+    Graphics.UI.Gtk.WebKit.WebSettings.Concrete,
+    Graphics.UI.Gtk.WebKit.WebView.Concrete,
+    Graphics.UI.Gtk.Windows.Window.Concrete
+  build-depends:
+    base                   >= 4.7  && < 4.8,
+    containers             >= 0.5  && < 0.6,
+    errors                 >= 1.4  && < 1.5,
+    functor-infix          >= 0.0  && < 0.1,
+    glib                   >= 0.13 && < 0.14,
+    gtk                    >= 0.13 && < 0.14,
+    https-everywhere-rules >= 0.1  && < 0.2,
+    network-uri            >= 2.6  && < 2.7,
+    stm                    >= 2.4  && < 2.5,
+    transformers           >= 0.3  && < 0.4,
+    webkit                 >= 0.13 && < 0.14,
+    xmonad                 >= 0.11 && < 0.12
+  hs-source-dirs:
+    src
+  default-language:
+    Haskell2010
+    
+flag build-examples
+  description:
+    Whether to build the programs under "examples/".
+  default:
+    True
+  manual:
+    True
+
+executable hwb-fmap
+  main-is:
+    Main.hs
+  build-depends:
+    base         >= 4.7 && < 4.8,
+    transformers >= 0.3 && < 0.4,
+    hwb
+  hs-source-dirs:
+    examples/fmap
+  default-language:
+    Haskell2010
+  if !(flag(build-examples))
+    buildable:
+      False
