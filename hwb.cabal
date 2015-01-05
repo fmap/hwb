@@ -26,6 +26,7 @@ library
     HWB.Core,
     HWB.Main,
     HWB.UserInterface,
+    HWB.Plugin.Clipboard,
     HWB.Plugin.HTTPSEverywhere,
     HWB.Plugin.Keybinding,
     HWB.Plugin.Navigation,

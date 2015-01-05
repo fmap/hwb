@@ -11,6 +11,7 @@ import Graphics.UI.Gtk.WebKit.WebView.Concrete (titleChanged, resourceRequestSta
 
 import HWB.Core (calls, is)
 import HWB.Main (hwb)
+import HWB.Plugin.Clipboard (yankCurrentURL)
 import HWB.Plugin.HTTPSEverywhere (tryHTTPS)
 import HWB.Plugin.Keybinding (Keybinding(..), tryKeybindings)
 import HWB.Plugin.Navigation (setURL)
@@ -23,6 +24,7 @@ keys =
   , "j"  :== pageDown
   , "k"  :== pageUp
   , "G"  :== scrollBottom
+  , "yy" :== yankCurrentURL
   ]
 
 main :: IO ()
