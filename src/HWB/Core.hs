@@ -1,7 +1,5 @@
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE FunctionalDependencies    #-}
-{-# LANGUAGE DeriveDataTypeable        #-}
 
 module HWB.Core (
   H,
@@ -15,13 +13,12 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Reader (ReaderT(..), asks)
 import Control.Monad.Trans.State (StateT(..))
 import Data.Map (Map)
-import Data.Typeable (Typeable)
 import Graphics.UI.Gtk.WebKit.WebSettings (WebSettings)
 import Graphics.UI.Gtk.WebKit.WebView (WebView, webViewGetWebSettings, webViewSetWebSettings)
 import Graphics.UI.Gtk.Windows.Window (Window)
 import System.Glib.Attributes (AttrOp((:=)), set, Attr)
 import System.Glib.Signals (Signal, on)
-import XMonad.Core (ExtensionClass(..), StateExtension)
+import XMonad.Core (StateExtension)
 
 import HWB.UserInterface (UserInterface(..))
 
