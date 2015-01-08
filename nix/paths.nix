@@ -6,7 +6,7 @@
   };
   httpsEverywhereRules = fetchgit {
     url    = "git://github.com/fmap/https-everywhere-rules.git";
-    rev    = "16959f6ca07d4d982777b90eecede7d51c1d6fb5";
-    sha256 = "0d181196a7aa94c3bfa5bdae6dd85c18b01fd79fb618a1db16b069adb3d92d44";
+    rev    = "c50f8496d3148b64855b61adfedbc48174e4e263";
+    sha256 = "e6f80217d7db5fbeccfd227d89b69e8b6dbda5334837b62831af1152219e1042";
   };
 }
