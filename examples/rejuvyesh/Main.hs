@@ -14,7 +14,7 @@ import HWB.Main (hwb)
 import HWB.Plugin.Clipboard (yankCurrentURL)
 import HWB.Plugin.HTTPSEverywhere (tryHTTPS)
 import HWB.Plugin.Keybinding (Keybinding(..), tryKeybindings)
-import HWB.Plugin.Navigation (setURL, goBack, goForward, reload, reloadBypassCache)
+import HWB.Plugin.Navigation (setURL, goBack, goForward, reload, forceReload)
 import HWB.Plugin.Scrolling (scrollTop, scrollBottom, pageDown, pageUp)
 import HWB.Plugin.WindowTitle (setWindowTitle)
 
@@ -26,7 +26,7 @@ keys =
   , "G"  :== scrollBottom
   , "yy" :== yankCurrentURL
   , "r"  :== reload
-  , "R"  :== reloadBypassCache
+  , "R"  :== forceReload
   , "h"  :== goBack
   , "H"  :== goForward
   ]

@@ -4,7 +4,7 @@ module HWB.Plugin.Navigation (
   goBack,
   goForward,
   reload,
-  reloadBypassCache
+  forceReload 
 ) where
 
 import Control.Monad.IO.Class (liftIO)
@@ -29,5 +29,5 @@ goForward = asks userInterfaceWebView >>= liftIO . webViewGoForward
 reload :: H ()
 reload = asks userInterfaceWebView >>= liftIO . webViewReload
 
-reloadBypassCache :: H()
-reloadBypassCache = asks userInterfaceWebView >>= liftIO . webViewReloadBypassCache
+forceReload :: H ()
+forceReload = asks userInterfaceWebView >>= liftIO . webViewReloadBypassCache
