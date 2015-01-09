@@ -30,7 +30,6 @@ library
     HWB.Plugin.HTTPSEverywhere,
     HWB.Plugin.Keybinding,
     HWB.Plugin.Navigation,
-    HWB.Plugin.Reload,
     HWB.Plugin.Scrolling,
     HWB.Plugin.Utilities.ExtensibleState,
     HWB.Plugin.WindowTitle,
@@ -73,6 +72,21 @@ executable hwb-fmap
     hwb
   hs-source-dirs:
     examples/fmap
+  default-language:
+    Haskell2010
+  if !(flag(build-examples))
+    buildable:
+      False
+
+executable hwb-rejuvyesh
+  main-is:
+    Main.hs
+  build-depends:
+    base         >= 4.7 && < 4.8,
+    transformers >= 0.3 && < 0.4,
+    hwb
+  hs-source-dirs:
+    examples/rejuvyesh
   default-language:
     Haskell2010
   if !(flag(build-examples))
