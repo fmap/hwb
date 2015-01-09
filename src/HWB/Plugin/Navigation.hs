@@ -2,7 +2,9 @@ module HWB.Plugin.Navigation (
   setURL,
   getURL,
   goBack,
-  goForward
+  goForward,
+  reload,
+  reloadBypassCache
 ) where
 
 import Control.Monad.IO.Class (liftIO)
