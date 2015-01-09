@@ -30,6 +30,7 @@ library
     HWB.Plugin.HTTPSEverywhere,
     HWB.Plugin.Keybinding,
     HWB.Plugin.Navigation,
+    HWB.Plugin.Reload,
     HWB.Plugin.Scrolling,
     HWB.Plugin.Utilities.ExtensibleState,
     HWB.Plugin.WindowTitle,
