@@ -1,2 +1,7 @@
 * Refactor the "Keybinding" code to be less evil.
+  * Type-safe specifications of key combinations.
+  * Abolish 'unsafePerformIO'.
+  * Generalise buffer to minimum required length given keybindings.
 * Introduce concurrency/threading to "tryHTTPS".
+  * See, e.g. <https://www.haskell.org/haskellwiki/Gtk2Hs/Tutorials/ThreadedGUIs>.
+* Nix: wrapper for GIO modules should target all executables.
